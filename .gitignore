@@ -6,3 +6,5 @@
 work/task.json
 work/memory/
 
+# Generated outputs
+work/out

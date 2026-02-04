@@ -61,6 +61,12 @@ Task files are JSON with:
 
 Important limitation (by design): task strings must not use JSON escape sequences (no backslashes). This keeps parsing and execution strict and predictable without adding `jq`/interpreters/packages to the image.
 
+## Troubleshooting
+
+- `missing required command: jd` (or `kv` / `jsonl`): initialize submodules on the host and rebuild:
+  - `git submodule update --init --recursive`
+  - `docker compose up --build --force-recreate`
+
 ## Demo
 
 See `tasks/demo/README.md` for a 3-run workflow:
