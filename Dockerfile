@@ -16,7 +16,7 @@ RUN mkdir -p /work \
   && chmod 0755 /work \
   && chmod +x /runtime/agent.sh
 
-ENV PATH="/tools/kv/bin:/tools/jsonl/bin:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+ENV PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   HOME="/work" \
   LANG="C" \
   LC_ALL="C" \

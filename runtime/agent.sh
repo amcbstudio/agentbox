@@ -10,7 +10,7 @@
 set -u
 umask 077
 
-PATH="/tools/kv/bin:/tools/jsonl/bin:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
 LC_ALL=C
@@ -39,7 +39,18 @@ die() {
 }
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  case "$1" in
+    kv|jsonl|jd)
+      die "missing required command: $1 (did you init git submodules under ./tools? try: git submodule update --init --recursive)"
+      ;;
+    *)
+      die "missing required command: $1"
+      ;;
+  esac
 }
 
 is_allowed_cmd() {
@@ -184,27 +195,50 @@ function emit_kv(k, v) {
   if (index(v, "\t") != 0) err("value contains tab for key " k)
   print k "\t" v
 }
-function emit_step(idx, obj, m, rest, x) {
+function extract_str(obj, key,   pat, tmp) {
+  pat = "\"" key "\"[[:space:]]*:[[:space:]]*\"[^\"]*\""
+  if (match(obj, pat) == 0) return ""
+  tmp = substr(obj, RSTART, RLENGTH)
+  sub("^\"" key "\"[[:space:]]*:[[:space:]]*\"", "", tmp)
+  sub("\"$", "", tmp)
+  return tmp
+}
+function extract_bool(doc, key,   pat, tmp) {
+  pat = "\"" key "\"[[:space:]]*:[[:space:]]*(true|false)"
+  if (match(doc, pat) == 0) return ""
+  tmp = substr(doc, RSTART, RLENGTH)
+  sub("^\"" key "\"[[:space:]]*:[[:space:]]*", "", tmp)
+  return tmp
+}
+function emit_step(idx, obj,   cmd, args_seg, rest, x) {
   # Disallow JSON escapes to keep parsing and execution safe/simple.
   if (index(obj, "\\") != 0) err("step " idx ": backslashes/escapes are not supported")
 
   emit_kv("STEP_BEGIN", idx)
 
-  if (match(obj, /"cmd"[[:space:]]*:[[:space:]]*"([^"]*)"/, m) == 0) err("step " idx ": missing cmd")
-  emit_kv("CMD", m[1])
+  cmd = extract_str(obj, "cmd")
+  if (cmd == "") err("step " idx ": missing cmd")
+  emit_kv("CMD", cmd)
 
-  if (match(obj, /"args"[[:space:]]*:[[:space:]]*\[([^]]*)\]/, m)) {
-    rest = m[1]
-    while (match(rest, /"([^"]*)"/, x)) {
-      emit_kv("ARG", x[1])
+  if (match(obj, /"args"[[:space:]]*:[[:space:]]*\[[^]]*\]/)) {
+    args_seg = substr(obj, RSTART, RLENGTH)
+    sub(/^"args"[[:space:]]*:[[:space:]]*\[/, "", args_seg)
+    sub(/\]$/, "", args_seg)
+    rest = args_seg
+    while (match(rest, /"[^"]*"/)) {
+      # We purposely only extract quoted strings, no escapes.
+      x = substr(rest, RSTART, RLENGTH)
+      sub(/^"/, "", x)
+      sub(/"$/, "", x)
+      emit_kv("ARG", x)
       rest = substr(rest, RSTART + RLENGTH)
     }
   }
 
-  if (match(obj, /"stdin_path"[[:space:]]*:[[:space:]]*"([^"]*)"/, m)) emit_kv("STDIN_PATH", m[1])
-  if (match(obj, /"stdout_path"[[:space:]]*:[[:space:]]*"([^"]*)"/, m)) emit_kv("STDOUT_PATH", m[1])
-  if (match(obj, /"stderr_path"[[:space:]]*:[[:space:]]*"([^"]*)"/, m)) emit_kv("STDERR_PATH", m[1])
-  if (match(obj, /"note"[[:space:]]*:[[:space:]]*"([^"]*)"/, m)) emit_kv("NOTE", m[1])
+  x = extract_str(obj, "stdin_path"); if (x != "") emit_kv("STDIN_PATH", x)
+  x = extract_str(obj, "stdout_path"); if (x != "") emit_kv("STDOUT_PATH", x)
+  x = extract_str(obj, "stderr_path"); if (x != "") emit_kv("STDERR_PATH", x)
+  x = extract_str(obj, "note"); if (x != "") emit_kv("NOTE", x)
 
   emit_kv("STEP_END", idx)
 }
@@ -219,11 +253,13 @@ END {
   gsub(/\r/, "", s)
   if (s == "") err("empty task file")
 
-  if (match(s, /"version"[[:space:]]*:[[:space:]]*([0-9]+)/, m) == 0) err("missing version")
-  if (m[1] != 1) err("unsupported version: " m[1])
+  if (match(s, /"version"[[:space:]]*:[[:space:]]*[0-9]+/) == 0) err("missing version")
+  ver = substr(s, RSTART, RLENGTH)
+  gsub(/[^0-9]/, "", ver)
+  if (ver != "1") err("unsupported version: " ver)
 
-  accept = "false"
-  if (match(s, /"accept_baseline"[[:space:]]*:[[:space:]]*(true|false)/, m2)) accept = m2[1]
+  accept = extract_bool(s, "accept_baseline")
+  if (accept == "") accept = "false"
   emit_kv("META_ACCEPT_BASELINE", accept)
 
   steps_pos = index(s, "\"steps\"")
