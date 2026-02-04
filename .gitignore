@@ -1,0 +1,8 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Local runtime artifacts (mounted into container)
+work/task.json
+work/memory/
+

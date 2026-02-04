@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "cmd": "date",
+      "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"],
+      "stdout_path": "/work/out/run1/utc.txt"
+    },
+    {
+      "cmd": "sha256sum",
+      "args": ["/work/out/run1/utc.txt"],
+      "stdout_path": "/work/out/run1/utc.txt.sha256"
+    },
+    {
+      "cmd": "ls",
+      "args": ["-la", "/work"],
+      "stdout_path": "/work/out/run1/ls.txt"
+    }
+  ]
+}
+

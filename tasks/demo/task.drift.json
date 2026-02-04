@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "cmd": "date",
+      "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"],
+      "stdout_path": "/work/out/run2/utc.txt",
+      "note": "introduce drift via note field"
+    },
+    {
+      "cmd": "sha256sum",
+      "args": ["/work/out/run2/utc.txt"],
+      "stdout_path": "/work/out/run2/utc.txt.sha256"
+    },
+    {
+      "cmd": "ls",
+      "args": ["-la", "/work"],
+      "stdout_path": "/work/out/run2/ls.txt"
+    }
+  ]
+}
+
