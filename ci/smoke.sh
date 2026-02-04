@@ -14,9 +14,8 @@ test -f work/memory/state.json
 test -f work/memory/MEMORY.md
 
 # Confirm compose sets network_mode: none (defense-in-depth check).
-cid="$(docker compose ps -q agentbox)"
+cid="$(docker compose ps -aq agentbox | tail -n 1)"
 test -n "$cid"
 docker inspect "$cid" --format '{{.HostConfig.NetworkMode}}' | grep -qx 'none'
 
 docker compose down --remove-orphans
-
