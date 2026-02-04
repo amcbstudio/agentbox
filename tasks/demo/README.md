@@ -32,3 +32,20 @@ docker compose up --build --force-recreate
 
 This task sets `"accept_baseline": true`, which updates `schema.fields.jsonl` to match the current event schema and re-runs drift.
 
+## Run 4 (JSON escapes)
+
+```sh
+cp tasks/demo/task.escapes.json work/task.json
+docker compose up --build --force-recreate
+```
+
+This task includes a `note` with quotes, newlines, and backslashes to prove `jq`-based parsing works.
+
+## Run 5 (forbidden path)
+
+```sh
+cp tasks/demo/task.forbidden-path.json work/task.json
+docker compose up --build --force-recreate
+```
+
+This task tries to read `/etc/passwd` via an absolute arg. It should fail with exit code 2 and emit a JSON `type=error` event.
