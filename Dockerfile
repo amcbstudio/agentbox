@@ -1,5 +1,7 @@
 FROM alpine:3.20.3
 
+RUN apk add --no-cache jq
+
 RUN addgroup -g 1000 agent \
   && adduser -D -u 1000 -G agent agent
 

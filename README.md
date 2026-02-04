@@ -24,6 +24,7 @@ The runtime itself (`runtime/agent.sh`) additionally enforces:
 - Command **allowlist** (see `policy/ALLOWED_COMMANDS.md`)
 - No `sh -c ...` and no `eval` of task content
 - I/O redirections restricted to `/work/...` (and task steps may not write to `/work/memory/...`)
+- Absolute args must be under `/work/` (any arg starting with `/` but not `/work/` is rejected)
 
 ## Tools distribution (hard requirement)
 
@@ -59,7 +60,9 @@ Task files are JSON with:
   - `note` (optional; included in event schema and used by demo to show drift)
 - `accept_baseline` (optional boolean; when `true` rewrites `schema.fields.jsonl` to match current events)
 
-Important limitation (by design): task strings must not use JSON escape sequences (no backslashes). This keeps parsing and execution strict and predictable without adding `jq`/interpreters/packages to the image.
+Parsing and validation are performed with `jq`, so full JSON escaping is supported.
+
+Security note: any **absolute** argument starting with `/` must also start with `/work/`, otherwise the task is rejected.
 
 ## Troubleshooting
 
@@ -69,11 +72,13 @@ Important limitation (by design): task strings must not use JSON escape sequence
 
 ## Demo
 
-See `tasks/demo/README.md` for a 3-run workflow:
+See `tasks/demo/README.md` for a multi-run workflow:
 
 1) baseline creation
 2) drift detection
 3) baseline acceptance
+4) JSON escapes
+5) forbidden path rejection
 
 ## Non-goals
 

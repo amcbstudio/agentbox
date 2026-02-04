@@ -36,9 +36,10 @@ The runtime enforces the allowlist by:
 - Rejecting `cmd` values containing `/` (no absolute/relative paths).
 - Passing `args` as argv elements (no string concatenation / no eval).
 - Restricting redirection targets (`stdin_path`, `stdout_path`, `stderr_path`) to files under `/work/` (no `..` path segments).
+- Rejecting any **absolute** arg that does not start with `/work/` (e.g., `/etc/passwd`).
 - Preventing task steps from writing into `/work/memory/` (reserved for agent-managed artifacts).
 - Applying extra argument restrictions for dangerous “escape hatches”:
   - `awk`: blocks `system`, `getline`, pipes/redirections, and disallows `-f` to prevent spawning arbitrary commands.
   - `sed`: disallows `-i` and limits flags to reduce the chance of mutating files in-place.
 
-Note: the runtime also intentionally rejects JSON string escape sequences in the task file (no backslashes) to keep parsing and execution semantics strict and predictable.
+Note: task JSON is parsed and validated with `jq`, so standard JSON escaping is supported.
