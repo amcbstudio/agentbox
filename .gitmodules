@@ -5,6 +5,8 @@
 	path = tools/jsonl
 	url = https://github.com/amcbstudio/jsonl.git
 [submodule "tools/jd"]
-	path = tools/jd
-	url = https://github.com/amcbstudio/jd.git
-
+  path = tools/jd
+  url = https://github.com/amcbstudio/jd.git
+[submodule "tools/moltbox"]
+  path = tools/moltbox
+  url = https://github.com/amcbstudio/moltbox.git

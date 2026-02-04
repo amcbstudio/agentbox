@@ -10,7 +10,7 @@
 set -u
 umask 077
 
-PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/tools/moltbox/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
 LC_ALL=C
@@ -101,7 +101,7 @@ require_cmd() {
 
 is_allowed_cmd() {
   case "$1" in
-    kv|jsonl|jd|cat|wc|head|tail|sed|awk|diff|sha256sum|date|mkdir|ls) return 0 ;;
+    kv|jsonl|jd|molt|cat|wc|head|tail|sed|awk|diff|sha256sum|date|mkdir|ls) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -220,6 +220,24 @@ validate_task() {
       and (.stderr_path? | if . == null then true else type == "string" end)
       and (.note? | if . == null then true else type == "string" end)
     ))
+    and (
+      .publish? as $p
+      | if $p == null then true
+        else ($p | type == "object")
+          and (($p.enabled? // false) | type == "boolean")
+          and (
+            if ($p.enabled? // false) then
+              ($p.provider == "moltbook")
+              and ($p.mode | type == "string" and ($p.mode == "post" or $p.mode == "comment"))
+              and ($p.submolt | type == "string" and length > 0)
+              and ($p.api_key_path | type == "string" and length > 0)
+              and ($p.jsonl_events | type == "string" and length > 0)
+              and (if $p.mode == "comment" then ($p.post_id | type == "string" and length > 0) else true end)
+              and (if $p.mode == "post" then ($p.title? | if . == null then true else type == "string" end) else true end)
+            else true end
+          )
+      end
+    )
   ' "$task_path" >/dev/null 2>"$TMP_DIR/jq.validate.err"
 }
 
@@ -519,6 +537,102 @@ EOF
 EOF
 }
 
+publish_phase() {
+  publish_enabled="$(jq -r '.publish.enabled // false' "$task_path_used")"
+  if [ "$publish_enabled" != "true" ]; then
+    return 0
+  fi
+
+  provider="$(jq -r '.publish.provider // ""' "$task_path_used")"
+  mode="$(jq -r '.publish.mode // ""' "$task_path_used")"
+  submolt="$(jq -r '.publish.submolt // ""' "$task_path_used")"
+  title="$(jq -r '.publish.title // ""' "$task_path_used")"
+  post_id="$(jq -r '.publish.post_id // ""' "$task_path_used")"
+  api_key_path="$(jq -r '.publish.api_key_path // ""' "$task_path_used")"
+  jsonl_events="$(jq -r '.publish.jsonl_events // ""' "$task_path_used")"
+
+  [ "$provider" = "moltbook" ] || error_exit "publish.provider must be \"moltbook\"" "publish"
+  case "$mode" in
+    post|comment) ;;
+    *) error_exit "publish.mode must be \"post\" or \"comment\"" "publish" ;;
+  esac
+  [ -n "$submolt" ] || error_exit "publish.submolt is required" "publish"
+  [ -n "$api_key_path" ] || error_exit "publish.api_key_path is required" "publish"
+  [ -n "$jsonl_events" ] || error_exit "publish.jsonl_events is required" "publish"
+
+  ensure_work_path "$api_key_path"
+  ensure_work_path "$jsonl_events"
+
+  [ -f "$api_key_path" ] || error_exit "publish.api_key_path missing: $api_key_path" "publish"
+
+  if [ "${AGENTBOX_TEST_DELETE_MEMORY:-}" = "1" ]; then
+    rm -f "$MEMORY_MD_PATH" 2>/dev/null || :
+  fi
+
+  [ -f "$MEMORY_MD_PATH" ] || error_exit "MEMORY.md missing: $MEMORY_MD_PATH" "publish"
+
+  if [ "$mode" = "comment" ] && [ -z "$post_id" ]; then
+    error_exit "publish.post_id is required for comment mode" "publish"
+  fi
+
+  jsonl_dir="${jsonl_events%/*}"
+  mkdir -p "$jsonl_dir" || error_exit "failed to create dir: $jsonl_dir" "publish"
+  if [ "$jsonl_events" != "$EVENTS_PATH" ]; then
+    cat "$EVENTS_PATH" >"$jsonl_events" || error_exit "failed to write jsonl_events: $jsonl_events" "publish"
+  fi
+
+  require_cmd molt
+
+  publish_args_json="$(
+    jq -nc \
+      --arg api_key_path "$api_key_path" \
+      --arg jsonl_events "$jsonl_events" \
+      --arg submolt "$submolt" \
+      --arg mode "$mode" \
+      --arg title "$title" \
+      --arg post_id "$post_id" \
+      '[
+        "--api-key-file", $api_key_path,
+        "--jsonl-events", $jsonl_events,
+        "publish", "agentbox",
+        "--memory-dir", "/work/memory",
+        "--submolt", $submolt,
+        "--mode", $mode
+      ]
+      + (if $title != "" then ["--title", $title] else [] end)
+      + (if $post_id != "" then ["--post-id", $post_id] else [] end)'
+  )"
+
+  publish_args_path="${TMP_DIR}/agentbox.args.${$}.publish"
+  if ! printf '%s' "$publish_args_json" | jq -r '.[]' >"$publish_args_path"; then
+    error_exit "failed to build publish args" "publish"
+  fi
+
+  publish_out_dir="/work/out/publish"
+  mkdir -p "$publish_out_dir" || error_exit "failed to create dir: $publish_out_dir" "publish"
+  publish_stdout="${publish_out_dir}/molt.stdout"
+  publish_stderr="${publish_out_dir}/molt.stderr"
+
+  seq="$((seq + 1))"
+  if run_step \
+    "-1" \
+    "molt" \
+    "$publish_args_json" \
+    "$publish_args_path" \
+    "" \
+    "$publish_stdout" \
+    "$publish_stderr" \
+    "" \
+    "$now" \
+    "$seq" \
+    "$task_path_used" \
+    "$task_sha"; then
+    :
+  else
+    step_failures="$((step_failures + 1))"
+  fi
+}
+
 main() {
   require_cmd awk
   require_cmd wc
@@ -636,6 +750,8 @@ main() {
     || error_exit "failed to write state.json" "runtime"
   write_memory_md "$now" "$task_path_used" "$task_sha" "$accept_baseline" "$step_failures" "$drift_detected" "$drift_events" \
     || error_exit "failed to write MEMORY.md" "runtime"
+
+  publish_phase
 
   cleanup_tmp
   if [ "$step_failures" -gt 0 ]; then

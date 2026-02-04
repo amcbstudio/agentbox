@@ -13,3 +13,19 @@ services:
     pids_limit: 64
     mem_limit: 128m
     cpus: "0.25"
+
+  agentbox-molt:
+    profiles:
+      - molt
+    build: .
+    read_only: true
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./work:/work:rw
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: "0.25"
