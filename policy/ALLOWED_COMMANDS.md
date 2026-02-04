@@ -8,7 +8,7 @@ The runtime (`runtime/agent.sh`) executes task steps by invoking a command **dir
 
 Task steps may execute only these commands:
 
-- amcbstudio tools: `kv`, `jsonl`, `jd`, `molt`
+- amcbstudio tools: `kv`, `jsonl`, `jd`
 - BusyBox utilities:
   - `cat`
   - `wc`
@@ -43,3 +43,6 @@ The runtime enforces the allowlist by:
   - `sed`: disallows `-i` and limits flags to reduce the chance of mutating files in-place.
 
 Note: task JSON is parsed and validated with `jq`, so standard JSON escaping is supported.
+
+The optional Moltbook publish phase uses the moltbox CLI by absolute path
+(`/tools/moltbox/bin/...`) and is **not** available to task steps.

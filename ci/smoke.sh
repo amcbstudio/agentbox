@@ -3,6 +3,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+rm -rf work/memory work/out work/task.json
 mkdir -p work
 
 docker compose up --build --force-recreate --abort-on-container-exit --exit-code-from agentbox
