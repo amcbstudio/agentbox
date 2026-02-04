@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "cmd": "date",
+      "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"],
+      "stdout_path": "/work/out/run-escapes/utc.txt",
+      "note": "line 1 with \"quotes\"\nline 2 with backslash \\\\ and tab \\t"
+    }
+  ]
+}
+

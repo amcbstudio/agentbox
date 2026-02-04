@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "cmd": "cat",
+      "args": ["/etc/passwd"],
+      "stdout_path": "/work/out/run-forbidden/passwd.txt",
+      "note": "should fail: absolute args must be under /work/"
+    }
+  ]
+}
+
