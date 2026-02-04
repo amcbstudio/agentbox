@@ -10,7 +10,7 @@
 set -u
 umask 077
 
-PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/tools/moltbox/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH="/tools/kv/bin:/tools/jsonl:/tools/jd/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
 LC_ALL=C
@@ -101,9 +101,30 @@ require_cmd() {
 
 is_allowed_cmd() {
   case "$1" in
-    kv|jsonl|jd|molt|cat|wc|head|tail|sed|awk|diff|sha256sum|date|mkdir|ls) return 0 ;;
+    kv|jsonl|jd|cat|wc|head|tail|sed|awk|diff|sha256sum|date|mkdir|ls) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+resolve_moltbox_bin() {
+  if [ -n "${MOLTBOX_BIN:-}" ]; then
+    candidate="$MOLTBOX_BIN"
+  elif [ -x "/tools/moltbox/bin/moltbox" ]; then
+    candidate="/tools/moltbox/bin/moltbox"
+  elif [ -x "/tools/moltbox/bin/molt" ]; then
+    candidate="/tools/moltbox/bin/molt"
+  else
+    error_exit "moltbox CLI not found under /tools/moltbox/bin" "publish"
+  fi
+
+  case "$candidate" in
+    /tools/moltbox/bin/*|/work/*) ;;
+    /*) error_exit "moltbox CLI path must be under /tools/moltbox/bin or /work: $candidate" "publish" ;;
+    *) error_exit "moltbox CLI path must be absolute: $candidate" "publish" ;;
+  esac
+  [ -x "$candidate" ] || error_exit "moltbox CLI not executable: $candidate" "publish"
+
+  MOLTBOX_BIN="$candidate"
 }
 
 ensure_work_path() {
@@ -227,13 +248,15 @@ validate_task() {
           and (($p.enabled? // false) | type == "boolean")
           and (
             if ($p.enabled? // false) then
-              ($p.provider == "moltbook")
-              and ($p.mode | type == "string" and ($p.mode == "post" or $p.mode == "comment"))
-              and ($p.submolt | type == "string" and length > 0)
-              and ($p.api_key_path | type == "string" and length > 0)
-              and ($p.jsonl_events | type == "string" and length > 0)
-              and (if $p.mode == "comment" then ($p.post_id | type == "string" and length > 0) else true end)
-              and (if $p.mode == "post" then ($p.title? | if . == null then true else type == "string" end) else true end)
+              (
+                (if $p.provider? == null then true else ($p.provider == "moltbook") end)
+                and (if $p.mode? == null then true else ($p.mode | type == "string" and ($p.mode == "post" or $p.mode == "comment")) end)
+                and (if $p.api_key_path? == null then true else ($p.api_key_path | type == "string" and length > 0) end)
+                and (if $p.jsonl_events? == null then true else ($p.jsonl_events | type == "string" and length > 0) end)
+                and (if $p.submolt? == null then true else ($p.submolt | type == "string" and length > 0) end)
+                and (if $p.title? == null then true else ($p.title | type == "string") end)
+                and (if $p.post_id? == null then true else ($p.post_id | type == "string" and length > 0) end)
+              )
             else true end
           )
       end
@@ -423,6 +446,92 @@ run_step() {
   return "$exit_code"
 }
 
+run_internal_step() {
+  step_index="$1"
+  cmd_path="$2"
+  cmd_name="$3"
+  args_json="$4"
+  stdin_path="$5"
+  stdout_path="$6"
+  stderr_path="$7"
+  note="$8"
+  ts="$9"
+  seq="${10}"
+  task_path="${11}"
+  task_sha="${12}"
+  shift 12
+
+  [ -x "$cmd_path" ] || error_exit "internal cmd not executable: $cmd_path" "runtime"
+  [ "$cmd_path" = "$MOLTBOX_BIN" ] || error_exit "internal cmd not allowed: $cmd_path" "runtime"
+
+  # stdin: only allow reading from /work (or unset => /dev/null).
+  stdin_file="/dev/null"
+  if [ -n "$stdin_path" ]; then
+    ensure_work_path "$stdin_path"
+    [ -f "$stdin_path" ] || error_exit "stdin_path does not exist: $stdin_path" "runtime"
+    stdin_file="$stdin_path"
+  fi
+
+  # stdout/stderr: only allow writing under /work. If not set, capture into $TMP_DIR (under /work).
+  out_file=""
+  err_file=""
+  out_path_for_event="$stdout_path"
+  err_path_for_event="$stderr_path"
+
+  if [ -n "$stdout_path" ]; then
+    ensure_work_output_path "$stdout_path"
+    out_dir="${stdout_path%/*}"
+    mkdir -p "$out_dir" || error_exit "failed to create dir: $out_dir" "runtime"
+    out_file="$stdout_path"
+  else
+    out_file="${TMP_DIR}/agentbox.internal.${seq}.stdout"
+    out_path_for_event=""
+  fi
+
+  if [ -n "$stderr_path" ]; then
+    ensure_work_output_path "$stderr_path"
+    err_dir="${stderr_path%/*}"
+    mkdir -p "$err_dir" || error_exit "failed to create dir: $err_dir" "runtime"
+    err_file="$stderr_path"
+  else
+    err_file="${TMP_DIR}/agentbox.internal.${seq}.stderr"
+    err_path_for_event=""
+  fi
+
+  : >"$out_file" || error_exit "failed to open stdout file: $out_file" "runtime"
+  : >"$err_file" || error_exit "failed to open stderr file: $err_file" "runtime"
+
+  "$cmd_path" "$@" <"$stdin_file" >"$out_file" 2>"$err_file"
+  exit_code="$?"
+
+  out_bytes="$(bytes_file "$out_file")"
+  out_sha="$(sha256_file "$out_file")"
+  err_bytes="$(bytes_file "$err_file")"
+  err_sha="$(sha256_file "$err_file")"
+
+  [ -n "$args_json" ] || args_json="[]"
+
+  append_event \
+    "$ts" \
+    "$seq" \
+    "$task_path" \
+    "$task_sha" \
+    "$step_index" \
+    "$cmd_name" \
+    "$args_json" \
+    "$stdin_path" \
+    "$out_path_for_event" \
+    "$err_path_for_event" \
+    "$exit_code" \
+    "$out_bytes" \
+    "$out_sha" \
+    "$err_bytes" \
+    "$err_sha" \
+    "$note"
+
+  return "$exit_code"
+}
+
 run_jd_fields() {
   # Writes schema fields JSONL to $1.
   # Compatibility: prefer stdin, fall back to file-arg mode if needed.
@@ -556,12 +665,22 @@ publish_phase() {
     post|comment) ;;
     *) error_exit "publish.mode must be \"post\" or \"comment\"" "publish" ;;
   esac
-  [ -n "$submolt" ] || error_exit "publish.submolt is required" "publish"
   [ -n "$api_key_path" ] || error_exit "publish.api_key_path is required" "publish"
-  [ -n "$jsonl_events" ] || error_exit "publish.jsonl_events is required" "publish"
+
+  if [ "$mode" = "post" ]; then
+    [ -n "$submolt" ] || error_exit "publish.submolt is required for post mode" "publish"
+    [ -n "$title" ] || error_exit "publish.title is required for post mode" "publish"
+  fi
+  if [ "$mode" = "comment" ] && [ -z "$post_id" ]; then
+    error_exit "publish.post_id is required for comment mode" "publish"
+  fi
+
+  if [ -z "$jsonl_events" ]; then
+    jsonl_events="${MEMORY_DIR}/molt.events.jsonl"
+  fi
 
   ensure_work_path "$api_key_path"
-  ensure_work_path "$jsonl_events"
+  [ -n "$jsonl_events" ] && ensure_work_path "$jsonl_events"
 
   [ -f "$api_key_path" ] || error_exit "publish.api_key_path missing: $api_key_path" "publish"
 
@@ -570,55 +689,106 @@ publish_phase() {
   fi
 
   [ -f "$MEMORY_MD_PATH" ] || error_exit "MEMORY.md missing: $MEMORY_MD_PATH" "publish"
+  resolve_moltbox_bin
 
-  if [ "$mode" = "comment" ] && [ -z "$post_id" ]; then
-    error_exit "publish.post_id is required for comment mode" "publish"
-  fi
-
-  jsonl_dir="${jsonl_events%/*}"
-  mkdir -p "$jsonl_dir" || error_exit "failed to create dir: $jsonl_dir" "publish"
-  if [ "$jsonl_events" != "$EVENTS_PATH" ]; then
-    cat "$EVENTS_PATH" >"$jsonl_events" || error_exit "failed to write jsonl_events: $jsonl_events" "publish"
-  fi
-
-  require_cmd molt
-
-  publish_args_json="$(
-    jq -nc \
-      --arg api_key_path "$api_key_path" \
-      --arg jsonl_events "$jsonl_events" \
-      --arg submolt "$submolt" \
-      --arg mode "$mode" \
-      --arg title "$title" \
-      --arg post_id "$post_id" \
-      '[
-        "--api-key-file", $api_key_path,
-        "--jsonl-events", $jsonl_events,
-        "publish", "agentbox",
-        "--memory-dir", "/work/memory",
-        "--submolt", $submolt,
-        "--mode", $mode
-      ]
-      + (if $title != "" then ["--title", $title] else [] end)
-      + (if $post_id != "" then ["--post-id", $post_id] else [] end)'
-  )"
-
-  publish_args_path="${TMP_DIR}/agentbox.args.${$}.publish"
-  if ! printf '%s' "$publish_args_json" | jq -r '.[]' >"$publish_args_path"; then
-    error_exit "failed to build publish args" "publish"
+  if [ -n "$jsonl_events" ]; then
+    jsonl_dir="${jsonl_events%/*}"
+    mkdir -p "$jsonl_dir" || error_exit "failed to create dir: $jsonl_dir" "publish"
   fi
 
   publish_out_dir="/work/out/publish"
   mkdir -p "$publish_out_dir" || error_exit "failed to create dir: $publish_out_dir" "publish"
-  publish_stdout="${publish_out_dir}/molt.stdout"
-  publish_stderr="${publish_out_dir}/molt.stderr"
+  publish_stdout="${publish_out_dir}/moltbox.stdout"
+  publish_stderr="${publish_out_dir}/moltbox.stderr"
 
   seq="$((seq + 1))"
-  if run_step \
+  if [ "$mode" = "post" ]; then
+    publish_args_json="$(
+      jq -nc \
+        --arg api_key_path "$api_key_path" \
+        --arg jsonl_events "$jsonl_events" \
+        --arg submolt "$submolt" \
+        --arg title "$title" \
+        --arg memory_md "$MEMORY_MD_PATH" \
+        '[
+          "post",
+          "--submolt", $submolt,
+          "--title", $title,
+          "--content-file", $memory_md,
+          "--api-key-file", $api_key_path
+        ]
+        + (if $jsonl_events != "" then ["--jsonl-events", $jsonl_events] else [] end)'
+    )"
+
+    if [ -n "$jsonl_events" ]; then
+      set -- post \
+        --submolt "$submolt" \
+        --title "$title" \
+        --content-file "$MEMORY_MD_PATH" \
+        --api-key-file "$api_key_path" \
+        --jsonl-events "$jsonl_events"
+    else
+      set -- post \
+        --submolt "$submolt" \
+        --title "$title" \
+        --content-file "$MEMORY_MD_PATH" \
+        --api-key-file "$api_key_path"
+    fi
+
+    if run_internal_step \
+      "-1" \
+      "$MOLTBOX_BIN" \
+      "moltbox" \
+      "$publish_args_json" \
+      "" \
+      "$publish_stdout" \
+      "$publish_stderr" \
+      "" \
+      "$now" \
+      "$seq" \
+      "$task_path_used" \
+      "$task_sha" \
+      "$@"; then
+      :
+    else
+      step_failures="$((step_failures + 1))"
+    fi
+    return 0
+  fi
+
+  publish_content="$(cat "$MEMORY_MD_PATH")"
+  publish_args_json="$(
+    jq -nc \
+      --arg api_key_path "$api_key_path" \
+      --arg jsonl_events "$jsonl_events" \
+      --arg post_id "$post_id" \
+      '[
+        "comment",
+        "--post-id", $post_id,
+        "--content", "<redacted>",
+        "--api-key-file", $api_key_path
+      ]
+      + (if $jsonl_events != "" then ["--jsonl-events", $jsonl_events] else [] end)'
+  )"
+
+  if [ -n "$jsonl_events" ]; then
+    set -- comment \
+      --post-id "$post_id" \
+      --content "$publish_content" \
+      --api-key-file "$api_key_path" \
+      --jsonl-events "$jsonl_events"
+  else
+    set -- comment \
+      --post-id "$post_id" \
+      --content "$publish_content" \
+      --api-key-file "$api_key_path"
+  fi
+
+  if run_internal_step \
     "-1" \
-    "molt" \
+    "$MOLTBOX_BIN" \
+    "moltbox" \
     "$publish_args_json" \
-    "$publish_args_path" \
     "" \
     "$publish_stdout" \
     "$publish_stderr" \
@@ -626,7 +796,8 @@ publish_phase() {
     "$now" \
     "$seq" \
     "$task_path_used" \
-    "$task_sha"; then
+    "$task_sha" \
+    "$@"; then
     :
   else
     step_failures="$((step_failures + 1))"

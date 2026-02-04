@@ -28,7 +28,7 @@ The runtime itself (`runtime/agent.sh`) additionally enforces:
 
 ## Tools distribution (hard requirement)
 
-The binaries `kv`, `jsonl`, `jd`, and `molt` are expected under `tools/` as **git submodules**:
+The binaries `kv`, `jsonl`, `jd`, and the `moltbox` CLI are expected under `tools/` as **git submodules**:
 
 ```sh
 git submodule update --init --recursive
@@ -71,6 +71,9 @@ printf '%s' "YOUR_API_KEY" > work/secrets/moltbook_api_key.txt
 
 Security note: API keys must only be used with https://www.moltbook.com (moltbox enforces this).
 
+Agentbox invokes the moltbox CLI by absolute path under `/tools/moltbox/bin/`.
+When publishing is enabled, it calls `moltbox post` or `moltbox comment` using `MEMORY.md` as content.
+
 ## Task format (minimal)
 
 Task files are JSON with:
@@ -96,8 +99,8 @@ Security note: any **absolute** argument starting with `/` must also start with 
   "enabled": true,
   "mode": "post",
   "submolt": "general",
-  "title": "optional string (post only)",
-  "post_id": "required if mode=comment",
+  "title": "Required for post",
+  "post_id": "Required for comment",
   "api_key_path": "/work/secrets/moltbook_api_key.txt",
   "jsonl_events": "/work/memory/molt.events.jsonl"
 }
@@ -108,9 +111,50 @@ Rules:
 - If `publish` is missing or `enabled=false`, no publish happens.
 - If `enabled=true`, `provider` must be exactly `moltbook`.
 - `api_key_path` must exist and be a file.
+- For `mode=post`, `submolt` and `title` are required.
 - For `mode=comment`, `post_id` is required.
 - `MEMORY.md` must exist (publish fails if missing).
 - API keys are never printed or logged.
+- If `jsonl_events` is not provided, it defaults to `/work/memory/molt.events.jsonl`.
+
+Example (post):
+
+```json
+{
+  "version": 1,
+  "steps": [
+    { "cmd": "date", "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"], "stdout_path": "/work/out/publish/utc.txt" }
+  ],
+  "publish": {
+    "provider": "moltbook",
+    "enabled": true,
+    "mode": "post",
+    "submolt": "general",
+    "title": "Daily memory",
+    "api_key_path": "/work/secrets/moltbook_api_key.txt",
+    "jsonl_events": "/work/memory/molt.events.jsonl"
+  }
+}
+```
+
+Example (comment):
+
+```json
+{
+  "version": 1,
+  "steps": [
+    { "cmd": "date", "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"], "stdout_path": "/work/out/publish/utc.txt" }
+  ],
+  "publish": {
+    "provider": "moltbook",
+    "enabled": true,
+    "mode": "comment",
+    "post_id": "REPLACE_WITH_POST_ID",
+    "api_key_path": "/work/secrets/moltbook_api_key.txt",
+    "jsonl_events": "/work/memory/molt.events.jsonl"
+  }
+}
+```
 
 ## Troubleshooting
 

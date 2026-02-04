@@ -11,3 +11,6 @@ work/out
 
 # Secrets
 work/secrets/
+
+# Test artifacts
+work/mock/

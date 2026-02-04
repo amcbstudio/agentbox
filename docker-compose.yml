@@ -26,6 +26,7 @@ services:
       - no-new-privileges:true
     volumes:
       - ./work:/work:rw
+      - ./work/secrets:/work/secrets:ro
     pids_limit: 64
     mem_limit: 128m
     cpus: "0.25"
