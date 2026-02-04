@@ -8,7 +8,7 @@ The runtime (`runtime/agent.sh`) executes task steps by invoking a command **dir
 
 Task steps may execute only these commands:
 
-- amcbstudio tools: `kv`, `jsonl`, `jd`
+- amcbstudio tools: `kv`, `jsonl`, `jd`, `molt`
 - BusyBox utilities:
   - `cat`
   - `wc`

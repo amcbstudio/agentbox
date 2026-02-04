@@ -49,3 +49,21 @@ docker compose up --build --force-recreate
 ```
 
 This task tries to read `/etc/passwd` via an absolute arg. It should fail with exit code 2 and emit a JSON `type=error` event.
+
+## Run 6 (publish post)
+
+```sh
+cp tasks/demo/task.publish.post.json work/task.json
+docker compose --profile molt up --build agentbox-molt
+```
+
+Requires `work/secrets/moltbook_api_key.txt` (single-line API key).
+
+## Run 7 (publish comment)
+
+```sh
+cp tasks/demo/task.publish.comment.json work/task.json
+docker compose --profile molt up --build agentbox-molt
+```
+
+This task requires a real `post_id` in the JSON.

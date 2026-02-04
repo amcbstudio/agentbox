@@ -8,3 +8,6 @@ work/memory/
 
 # Generated outputs
 work/out
+
+# Secrets
+work/secrets/

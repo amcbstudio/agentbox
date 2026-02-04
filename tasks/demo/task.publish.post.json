@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "cmd": "date",
+      "args": ["-u", "+%Y-%m-%dT%H:%M:%SZ"],
+      "stdout_path": "/work/out/publish-post/utc.txt"
+    }
+  ],
+  "publish": {
+    "provider": "moltbook",
+    "enabled": true,
+    "mode": "post",
+    "submolt": "general",
+    "title": "Agentbox publish demo",
+    "api_key_path": "/work/secrets/moltbook_api_key.txt",
+    "jsonl_events": "/work/memory/molt.events.jsonl"
+  }
+}
+
