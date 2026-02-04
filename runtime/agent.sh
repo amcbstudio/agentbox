@@ -16,7 +16,8 @@ export PATH
 LC_ALL=C
 LANG=C
 TZ=UTC
-export LC_ALL LANG TZ
+TMPDIR="/work/tmp"
+export LC_ALL LANG TZ TMPDIR
 
 WORK_DIR="/work"
 MEMORY_DIR="${WORK_DIR}/memory"
@@ -815,6 +816,7 @@ main() {
 
   mkdir -p "$MEMORY_DIR" || error_exit "failed to create memory dir: $MEMORY_DIR" "runtime"
   mkdir -p "$TMP_DIR" || error_exit "failed to create tmp dir: $TMP_DIR" "runtime"
+  mkdir -p "$TMPDIR" || error_exit "failed to create TMPDIR: $TMPDIR" "runtime"
 
   # Pick task path.
   if [ -f "$TASK_PATH" ]; then
